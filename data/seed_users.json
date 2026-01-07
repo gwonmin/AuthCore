@@ -1,0 +1,26 @@
+{
+  "users": [
+    {
+      "user_id": "admin-001",
+      "username": "admin",
+      "password": "admin123",
+      "is_active": true,
+      "description": "관리자 계정"
+    },
+    {
+      "user_id": "test-001",
+      "username": "testuser",
+      "password": "testpass123",
+      "is_active": true,
+      "description": "테스트 사용자"
+    },
+    {
+      "user_id": "demo-001",
+      "username": "demo",
+      "password": "demo123",
+      "is_active": true,
+      "description": "데모 계정"
+    }
+  ]
+}
+

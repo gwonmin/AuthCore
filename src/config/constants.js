@@ -18,10 +18,10 @@ const JWT_CONFIG = {
   REFRESH_EXPIRES_IN: "7d"
 };
 
-// DynamoDB 테이블명
+// DynamoDB 테이블명 (환경 변수로 오버라이드 가능)
 const TABLES = {
-  USERS: "AuthCore_Users",
-  REFRESH_TOKENS: "AuthCore_RefreshTokens"
+  USERS: process.env.USERS_TABLE || process.env.USERS_TABLE_NAME || "AuthCore_Users",
+  REFRESH_TOKENS: process.env.REFRESH_TOKENS_TABLE || process.env.REFRESH_TOKENS_TABLE_NAME || "AuthCore_RefreshTokens"
 };
 
 // HTTP 상태 코드

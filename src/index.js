@@ -1,5 +1,4 @@
 const fastify = require("fastify")({ logger: true });
-const serverless = require("serverless-http");
 const cors = require("@fastify/cors");
 const jwt = require("@fastify/jwt");
 const rateLimit = require("@fastify/rate-limit");
@@ -38,19 +37,25 @@ fastify.setNotFoundHandler(notFoundHandler);
 // 라우트 등록
 fastify.register(routes);
 
-// Lambda 핸들러 등록
-module.exports.handler = serverless(fastify);
+// 헬스체크 엔드포인트
+fastify.get("/health", async (request, reply) => {
+  return { status: "ok", service: "authcore" };
+});
 
-// 로컬 개발 환경일 때만 listen 실행
-if (process.env.IS_LOCAL === "true") {
-  const start = async () => {
-    try {
-      console.log("🚀 Starting Fastify server...");
-      await fastify.listen({ port: process.env.PORT || 4000, host: "localhost" });
-    } catch (err) {
-      console.error("❌ Server failed to start:", err);
-      process.exit(1);
-    }
-  };
-  start();
-}
+// 서버 시작
+const start = async () => {
+  try {
+    const port = process.env.PORT || 4000;
+    const host = process.env.HOST || "0.0.0.0";
+    
+    console.log("🚀 Starting Fastify server...");
+    await fastify.listen({ port, host });
+    console.log(`✅ Server listening on ${host}:${port}`);
+  } catch (err) {
+    console.error("❌ Server failed to start:", err);
+    process.exit(1);
+  }
+};
+
+// 애플리케이션 시작
+start();

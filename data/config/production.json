@@ -1,0 +1,11 @@
+{
+  "JWT_SECRET": "your-super-secret-jwt-key-change-this-in-production",
+  "AWS_REGION": "ap-northeast-2",
+  "NODE_ENV": "production",
+  "JWT_ACCESS_EXPIRES_IN": "15m",
+  "JWT_REFRESH_EXPIRES_IN": "7d",
+  "ALLOWED_ORIGINS": "*",
+  "RATE_LIMIT_MAX": 100,
+  "RATE_LIMIT_WINDOW": "1 minute"
+}
+
