@@ -28,6 +28,17 @@ resource "aws_dynamodb_table" "users" {
     Name        = "AuthCore_Users"
     Description = "사용자 정보 저장 테이블"
   }
+
+  # 기존 테이블 import 후 불필요한 변경 방지
+  lifecycle {
+    ignore_changes = [
+      # 태그는 기존 것 유지 (default_tags와 충돌 방지)
+      tags,
+      tags_all,
+      # DeletionProtection은 별도로 관리
+      deletion_protection_enabled,
+    ]
+  }
 }
 
 # RefreshTokens 테이블
@@ -64,6 +75,17 @@ resource "aws_dynamodb_table" "refresh_tokens" {
   tags = {
     Name        = "AuthCore_RefreshTokens"
     Description = "리프레시 토큰 저장 테이블"
+  }
+
+  # 기존 테이블 import 후 불필요한 변경 방지
+  lifecycle {
+    ignore_changes = [
+      # 태그는 기존 것 유지 (default_tags와 충돌 방지)
+      tags,
+      tags_all,
+      # DeletionProtection은 별도로 관리
+      deletion_protection_enabled,
+    ]
   }
 }
 

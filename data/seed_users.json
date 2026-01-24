@@ -1,11 +1,12 @@
 {
+  "_comment": "⚠️ 주의: 이 파일은 테스트/개발 환경용입니다. 프로덕션에서는 사용하지 마세요.",
   "users": [
     {
       "user_id": "admin-001",
       "username": "admin",
       "password": "admin123",
       "is_active": true,
-      "description": "관리자 계정"
+      "description": "관리자 계정 (테스트용)"
     },
     {
       "user_id": "test-001",

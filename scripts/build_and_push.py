@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Docker 이미지를 빌드하고 ECR에 푸시하는 스크립트
+Podman을 사용하여 이미지를 빌드하고 ECR에 푸시하는 스크립트
 """
 
 import os
@@ -40,29 +40,30 @@ def get_aws_account_id():
     return sts.get_caller_identity()['Account']
 
 def ecr_login(region, repository_uri):
-    """ECR에 로그인"""
-    print_info("Logging in to ECR...")
-    cmd = f"aws ecr get-login-password --region {region} | docker login --username AWS --password-stdin {repository_uri}"
+    """ECR에 로그인 (Podman 사용)"""
+    print_info("Logging in to ECR with Podman...")
+    cmd = f"aws ecr get-login-password --region {region} | podman login --username AWS --password-stdin {repository_uri}"
     run_command(cmd)
 
 def build_image(repo_name, tag):
-    """Docker 이미지 빌드"""
-    print_info("Building Docker image...")
+    """Podman을 사용하여 이미지 빌드"""
+    print_info("Building image with Podman...")
     # 프로젝트 루트 디렉토리로 이동하여 빌드
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     
-    # Dockerfile이 있는지 확인
+    # Dockerfile이 있는지 확인 (Podman도 Dockerfile 사용 가능)
     dockerfile_path = os.path.join(project_root, 'Dockerfile')
     if not os.path.exists(dockerfile_path):
         print_error(f"Dockerfile not found at {dockerfile_path}")
         sys.exit(1)
     
-    cmd = f"docker build -t {repo_name}:{tag} ."
+    # EC2는 amd64 아키텍처이므로 플랫폼 명시
+    cmd = f"podman build --platform linux/amd64 -t {repo_name}:{tag} ."
     # 프로젝트 루트에서 실행
     try:
         result = subprocess.run(cmd, shell=True, cwd=project_root, check=True, capture_output=True, text=True)
-        print_success("Docker image built successfully")
+        print_success("Image built successfully with Podman")
         if result.stdout:
             print_info(result.stdout)
     except subprocess.CalledProcessError as e:
@@ -74,19 +75,19 @@ def build_image(repo_name, tag):
         sys.exit(1)
 
 def tag_image(repo_name, tag, repository_uri):
-    """Docker 이미지 태그"""
-    cmd = f"docker tag {repo_name}:{tag} {repository_uri}:{tag}"
+    """Podman 이미지 태그"""
+    cmd = f"podman tag {repo_name}:{tag} {repository_uri}:{tag}"
     run_command(cmd)
 
 def push_image(repository_uri, tag):
-    """ECR에 이미지 푸시"""
-    print_info("Pushing image to ECR...")
-    cmd = f"docker push {repository_uri}:{tag}"
+    """ECR에 이미지 푸시 (Podman 사용)"""
+    print_info("Pushing image to ECR with Podman...")
+    cmd = f"podman push {repository_uri}:{tag}"
     run_command(cmd)
 
 def main():
     """메인 함수"""
-    print("🚀 Building and pushing Docker image...")
+    print("🚀 Building and pushing image with Podman...")
     
     # 환경 변수 설정
     aws_region = os.getenv('AWS_REGION', 'ap-northeast-2')

@@ -20,8 +20,9 @@ dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION)
 
 
 def hash_password(password: str) -> str:
-    """비밀번호 해싱"""
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    """비밀번호 해싱 (Node.js bcryptjs와 호환되도록 saltRounds=10 사용)"""
+    # bcryptjs와 호환되도록 saltRounds=10 사용
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=10)).decode('utf-8')
 
 
 def seed_users(table_name: str, users_data: List[Dict]) -> None:
@@ -45,9 +46,66 @@ def seed_users(table_name: str, users_data: List[Dict]) -> None:
             if 'is_active' not in user:
                 user['is_active'] = True
             
-            # DynamoDB에 삽입
-            table.put_item(Item=user)
-            print(f"  ✅ Seeded user: {user.get('username', user.get('user_id'))}")
+            # 기존 사용자 확인 (username으로)
+            username = user.get('username')
+            if username:
+                try:
+                    # username-index를 사용하여 기존 사용자 확인
+                    response = table.query(
+                        IndexName='username-index',
+                        KeyConditionExpression='username = :username',
+                        ExpressionAttributeValues={':username': username}
+                    )
+                    if response.get('Items'):
+                        print(f"  ⚠️  User '{username}' already exists, skipping...")
+                        continue
+                except Exception as e:
+                    # 인덱스가 없거나 오류가 발생해도 계속 진행
+                    print(f"  ⚠️  Could not check existing user: {e}")
+            
+            # 기존 사용자 확인 (username으로)
+            username = user.get('username')
+            user_id = user.get('user_id')
+            user_exists = False
+            
+            if username:
+                try:
+                    # username-index를 사용하여 기존 사용자 확인
+                    response = table.query(
+                        IndexName='username-index',
+                        KeyConditionExpression='username = :username',
+                        ExpressionAttributeValues={':username': username}
+                    )
+                    if response.get('Items'):
+                        print(f"  ⚠️  User '{username}' already exists, skipping...")
+                        user_exists = True
+                except Exception as e:
+                    # 인덱스가 없거나 오류가 발생해도 계속 진행
+                    pass
+            
+            # user_id로도 확인
+            if not user_exists and user_id:
+                try:
+                    response = table.get_item(Key={'user_id': user_id})
+                    if response.get('Item'):
+                        print(f"  ⚠️  User ID '{user_id}' already exists, skipping...")
+                        user_exists = True
+                except Exception as e:
+                    pass
+            
+            # 기존 사용자가 없을 때만 삽입
+            if not user_exists:
+                try:
+                    # ConditionExpression으로 중복 방지
+                    table.put_item(
+                        Item=user,
+                        ConditionExpression='attribute_not_exists(user_id)'
+                    )
+                    print(f"  ✅ Seeded user: {user.get('username', user.get('user_id'))}")
+                except dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
+                    print(f"  ⚠️  User '{user.get('username', user.get('user_id'))}' already exists, skipping...")
+                except Exception as e:
+                    print(f"  ❌ Failed to insert user: {e}")
             
         except Exception as e:
             print(f"  ❌ Failed to seed user {user.get('username', 'unknown')}: {e}")

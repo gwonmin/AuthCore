@@ -129,6 +129,7 @@ terraform/override.tf.json
 terraform/*_override.tf
 terraform/*_override.tf.json
 terraform/lambda_function.zip
+terraform/terraform.tfvars
 *.tfvars
 
 # Python

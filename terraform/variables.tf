@@ -35,3 +35,14 @@ variable "s3_bucket_name" {
   default     = ""
 }
 
+variable "key_pair_name" {
+  description = "EC2 키 페어 이름 (SSH 접속용, 선택사항)"
+  type        = string
+  default     = ""
+}
+
+variable "ec2_instance_type" {
+  description = "EC2 인스턴스 타입 (권장: t3.medium 이상, 최소: t3.small)"
+  type        = string
+  default     = "t3.small"
+}

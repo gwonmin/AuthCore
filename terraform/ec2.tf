@@ -19,7 +19,6 @@ resource "aws_iam_role" "ec2_role" {
     Name = "AuthCore EC2 Role"
   }
 }
-
 # EC2 인스턴스 프로파일
 resource "aws_iam_instance_profile" "ec2_profile" {
   name = "authcore-ec2-profile-${var.environment}"
@@ -93,103 +92,82 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-# kubeadm 설치 및 Kubernetes 클러스터 초기화 스크립트
+# k3s 설치 및 Kubernetes 클러스터 초기화 스크립트
 # User Data는 EC2 인스턴스 시작 시 실행되는 스크립트
 locals {
   user_data = <<-EOF
 #!/bin/bash
-set -e
+# set -e 제거 (cloud-init 타임아웃 방지)
+
+# 로그 파일 설정
+exec > >(tee /var/log/user-data.log)
+exec 2>&1
+
+echo "=== User data script started at $(date) ==="
 
 # 시스템 업데이트
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
+apt-get update || true
+apt-get install -y curl || true
 
-# containerd 설치
-apt-get install -y containerd
-mkdir -p /etc/containerd
-containerd config default | tee /etc/containerd/config.toml
-systemctl restart containerd
-systemctl enable containerd
+# Public IP 가져오기
+PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
 
-# swap 비활성화 (Kubernetes 요구사항)
-swapoff -a
-sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+echo "=== Installing k3s at $(date) ==="
 
-# 커널 모듈 로드
-cat <<MODULES | tee /etc/modules-load.d/k8s.conf
-overlay
-br_netfilter
-MODULES
+# k3s 설치 (단일 명령어)
+# --tls-san: Public IP를 인증서에 추가하여 외부 접근 가능하게 함
+# --node-ip: Private IP 사용
+# --bind-address: Private IP에 바인딩
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--tls-san $PUBLIC_IP --node-ip $PRIVATE_IP --bind-address $PRIVATE_IP" sh -
 
-modprobe overlay
-modprobe br_netfilter
+# k3s 서비스 상태 확인
+systemctl status k3s --no-pager | head -10 || true
 
-# sysctl 설정
-cat <<SYSCTL | tee /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-iptables  = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward                 = 1
-SYSCTL
-
-sysctl --system
-
-# Kubernetes 패키지 설치
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
-
-apt-get update
-apt-get install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
-
-# kubelet 자동 시작
-systemctl enable kubelet
-
-# Kubernetes 클러스터 초기화
-kubeadm init \
-  --pod-network-cidr=10.244.0.0/16 \
-  --apiserver-advertise-address=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4) \
-  --apiserver-cert-extra-sans=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4) \
-  --ignore-preflight-errors=Swap
-
-# kubectl 설정 (kubeadm init 완료 후)
+# kubeconfig 설정
+echo "=== Configuring kubeconfig at $(date) ==="
 mkdir -p /home/ubuntu/.kube
-cp -i /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
-chown -R ubuntu:ubuntu /home/ubuntu/.kube
+sudo cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config || exit 1
+sudo chown ubuntu:ubuntu /home/ubuntu/.kube/config
 
-# 환경 변수 설정 (kubectl 사용을 위해)
-export KUBECONFIG=/home/ubuntu/.kube/config
+# Public IP로 server 주소 변경 (로컬 접근용)
+if [ -n "$PUBLIC_IP" ]; then
+  # 기본 kubeconfig는 127.0.0.1을 사용하므로 Public IP로 변경
+  sed -i "s|127.0.0.1|$PUBLIC_IP|g" /home/ubuntu/.kube/config
+  echo "kubeconfig configured with Public IP: $PUBLIC_IP"
+fi
 
-# Master 노드에서도 Pod 스케줄링 허용 (단일 노드 클러스터)
-# kubeadm init이 완료된 후 실행되므로 잠시 대기
-sleep 10
 # kubectl이 사용 가능할 때까지 대기
-until kubectl get nodes --kubeconfig=/home/ubuntu/.kube/config 2>/dev/null; do
-  echo "Waiting for Kubernetes API server..."
+echo "=== Waiting for k3s to be ready at $(date) ==="
+export KUBECONFIG=/home/ubuntu/.kube/config
+export PATH=$PATH:/usr/local/bin
+
+# kubectl 설치 (k3s에 포함되어 있지만 경로 확인)
+until kubectl get nodes 2>/dev/null; do
+  echo "Waiting for k3s API server..."
   sleep 5
 done
-kubectl taint nodes --all node-role.kubernetes.io/control-plane- --kubeconfig=/home/ubuntu/.kube/config || true
 
-# Flannel 네트워크 플러그인 설치
-kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml --kubeconfig=/home/ubuntu/.kube/config || {
-  echo "Failed to install Flannel, retrying..."
-  sleep 10
-  kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml --kubeconfig=/home/ubuntu/.kube/config
-}
+echo "=== k3s is ready at $(date) ==="
+kubectl get nodes
 
-# 로그 저장
-echo "User data script completed at $(date)" >> /var/log/user-data.log
+# k3s는 기본적으로 단일 노드 클러스터로 설정되며 taint가 자동으로 제거됨
+# Flannel CNI도 자동으로 설치됨
+
+echo "=== k3s setup completed at $(date) ===" >> /var/log/user-data.log
 EOF
 }
 
 # EC2 인스턴스
 resource "aws_instance" "k8s_node" {
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t3.small"
+  instance_type          = var.ec2_instance_type
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
   vpc_security_group_ids = [aws_security_group.k8s.id]
   subnet_id              = aws_subnet.public[0].id
   user_data              = local.user_data
+  key_name               = var.key_pair_name != "" ? var.key_pair_name : null
 
   root_block_device {
     volume_type = "gp3"
