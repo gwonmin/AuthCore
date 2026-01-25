@@ -176,8 +176,8 @@ def get_k8s_backend_url(namespace: str = 'authcore', service_name: str = 'authco
         return ""
 
 def update_api_gateway_integration(api_id: str, integration_id: str, backend_url: str, region: str = 'ap-northeast-2'):
-    """API Gateway Integration 업데이트"""
-    print_step(f"Updating API Gateway Integration...")
+    """API Gateway Integration 업데이트 (변경된 경우에만)"""
+    print_step(f"Checking API Gateway Integration...")
     
     client = boto3.client('apigatewayv2', region_name=region)
     
@@ -188,7 +188,20 @@ def update_api_gateway_integration(api_id: str, integration_id: str, backend_url
             IntegrationId=integration_id
         )
         
-        # Integration 업데이트
+        current_uri = integration.get('IntegrationUri', '')
+        
+        # 백엔드 URL이 동일한지 확인
+        if current_uri == backend_url:
+            print_info(f"Backend URL unchanged, skipping update")
+            print_info(f"  Current URL: {current_uri}")
+            print_info(f"  New URL: {backend_url}")
+            return True
+        
+        # 백엔드 URL이 변경된 경우에만 업데이트
+        print_info(f"Backend URL changed, updating Integration...")
+        print_info(f"  Current URL: {current_uri}")
+        print_info(f"  New URL: {backend_url}")
+        
         response = client.update_integration(
             ApiId=api_id,
             IntegrationId=integration_id,
@@ -342,8 +355,8 @@ def main():
             sys.exit(1)
     else:
         print_success(f"Integration ID: {integration_id}")
-        # 4. API Gateway Integration 업데이트
-        print_step("Step 4: Updating API Gateway Integration...")
+        # 4. API Gateway Integration 업데이트 (변경된 경우에만)
+        print_step("Step 4: Checking and updating API Gateway Integration if needed...")
         if not update_api_gateway_integration(api_gateway_id, integration_id, loadbalancer_url, aws_region):
             print_error("Failed to update API Gateway Integration")
             sys.exit(1)
