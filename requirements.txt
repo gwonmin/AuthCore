@@ -1,0 +1,11 @@
+# AWS SDK
+boto3>=1.34.0
+botocore>=1.34.0
+
+# 비밀번호 해싱
+bcrypt>=4.1.0
+
+# 유틸리티
+python-dotenv>=1.0.0
+pyyaml>=6.0
+

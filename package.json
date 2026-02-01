@@ -6,10 +6,9 @@
     "test:unit": "jest tests/unit",
     "test:integration": "jest tests/integration",
     "test:integration:real-db": "USE_REAL_DB=true jest tests/integration",
-    "deploy": "serverless deploy --stage prod",
-    "remove": "serverless remove",
-    "logs": "serverless logs -f api",
-    "create-tables": "node scripts/create-tables.js"
+    "create-tables": "node scripts/create-tables.js",
+    "start": "node src/index.js",
+    "dev": "IS_LOCAL=true PORT=4000 node src/index.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.767.0",
@@ -21,7 +20,6 @@
     "dotenv": "^16.4.7",
     "fastify": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
-    "serverless-http": "^3.2.0",
     "uuid": "^8.3.2"
   },
   "devDependencies": {
