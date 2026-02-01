@@ -516,10 +516,12 @@ def main():
     # 네임스페이스 생성
     create_namespace(namespace)
     
-    # ECR imagePullSecret 생성
-    ecr_repo_url = terraform_outputs.get('ecr_repository_url', '')
+    # ECR imagePullSecret 생성 (Terraform output 없으면 CI env ECR_REPOSITORY_URI 사용)
+    ecr_repo_url = terraform_outputs.get('ecr_repository_url', '') or os.getenv('ECR_REPOSITORY_URI', '')
     if ecr_repo_url:
         create_ecr_secret(namespace, aws_region, ecr_repo_url)
+    else:
+        print_info("ECR repository URL not set (terraform output or ECR_REPOSITORY_URI). imagePullSecret may be missing → ImagePullBackOff 가능")
     
     # Secret 생성
     create_secrets(namespace, jwt_secret)
