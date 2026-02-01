@@ -63,6 +63,7 @@ jobs:
           name: coverage-report-${{ matrix.node-version }}
           path: coverage/
           retention-days: 7
+        continue-on-error: true
 
   # PR 시 인프라 변경 미리보기 (현업: plan으로 무엇이 바뀌는지 100% 가시화)
   # job 수준 if에서는 secrets 사용 불가 → TF_STATE_BUCKET 여부는 첫 단계에서 확인
@@ -225,13 +226,6 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
           ECR_REPOSITORY_URI: ${{ env.ECR_REPOSITORY_URI }}
 
-      - name: Upload image URI file
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-uri
-          path: .image_uri
-          retention-days: 1
-
   deploy:
     needs: build-and-push
     # main 브랜치에서만 배포
@@ -241,12 +235,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Download image URI artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: image-uri
-          path: .
 
       - name: Set up Python
         uses: actions/setup-python@v4

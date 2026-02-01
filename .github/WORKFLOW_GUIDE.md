@@ -268,7 +268,6 @@ cat ~/.ssh/authcore-k8s-key.pem
 6. Podman 설치
 7. ECR 로그인 (Podman)
 8. 이미지 빌드 및 푸시 (Podman)
-9. 이미지 URI 파일 업로드 (artifact)
 
 **소요 시간**: 약 3-5분
 
@@ -279,21 +278,20 @@ cat ~/.ssh/authcore-k8s-key.pem
 **단계:**
 
 1. 코드 체크아웃
-2. 이미지 URI artifact 다운로드
-3. Python 3.11 설정
-4. 의존성 설치
-5. AWS 자격 증명 설정
-6. 인프라 값 자동 조회:
+2. Python 3.11 설정
+3. 의존성 설치
+4. AWS 자격 증명 설정
+5. 인프라 값 자동 조회:
    - EC2 Public IP
    - API Gateway ID
    - Secrets Manager ARN
-7. ECR 리포지토리 URI 조회
-8. kubectl 설치
-9. SSH 키 설정
-10. kubeconfig 설정
-11. Kubernetes 배포 (k3s)
-12. API Gateway 백엔드 업데이트 (API_GATEWAY_ID가 있을 때만, 변경된 경우에만)
-13. 배포 검증
+6. ECR 리포지토리 URI 조회
+7. kubectl 설치
+8. SSH 키 설정
+9. kubeconfig 설정
+10. Kubernetes 배포 (k3s) — `IMAGE_URI`는 `ECR_REPOSITORY_URI:github.sha`로 전달
+11. API Gateway 백엔드 업데이트 (API_GATEWAY_ID가 있을 때만, 변경된 경우에만)
+12. 배포 검증
 
 **소요 시간**: 약 5-7분
 
