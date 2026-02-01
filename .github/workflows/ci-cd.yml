@@ -362,6 +362,8 @@ jobs:
 
       - name: Verify deployment
         run: |
+          # KUBECONFIG를 절대 경로로 설정 (~는 step env에서 확장되지 않아 kubectl가 localhost:8080으로 접속함)
+          export KUBECONFIG="${HOME}/.kube/config"
           echo "🔍 Verifying deployment..."
           kubectl get pods -n authcore
           kubectl get svc -n authcore
@@ -382,5 +384,3 @@ jobs:
           # Pod 로그 확인 (최근 20줄)
           echo "📋 Recent pod logs:"
           kubectl logs -n authcore -l app=authcore-api --tail=20 || echo "⚠️  Could not retrieve logs"
-        env:
-          KUBECONFIG: ~/.kube/config
