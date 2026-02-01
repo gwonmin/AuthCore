@@ -4,21 +4,28 @@
 
 이 문서는 AuthCore 프로젝트의 GitHub Actions CI/CD 워크플로우에 대한 종합 가이드입니다.
 
-### 워크플로우 구조
+### 워크플로우 구조 (인프라 + 앱 모두 CI 이력 관리)
 
 ```
 ci-cd.yml
 ├── test job (모든 브랜치/PR)
 │   ├── Node.js 23.10.0에서 테스트 실행
-│   ├── Unit 테스트
-│   ├── Integration 테스트
-│   └── 커버리지 리포트 생성
+│   ├── Unit / Integration 테스트
+│   └── 커버리지 리포트
 │
-├── build-and-push job (needs: test, main 브랜치만)
+├── terraform-plan job (PR 시, TF_STATE_BUCKET 있을 때만)
+│   ├── Terraform init (S3 backend)
+│   └── terraform plan → 무엇이 생성/수정/삭제되는지 미리보기
+│
+├── terraform-apply job (main push 시)
+│   ├── Terraform init (S3 backend)
+│   └── terraform apply -auto-approve → 인프라 반영 (추가 AWS 서비스, 보안 조치 등 전부 이력 관리)
+│
+├── build-and-push job (needs: test, terraform-apply / main만)
 │   ├── Podman으로 이미지 빌드
 │   └── ECR에 이미지 푸시
 │
-└── deploy job (needs: build-and-push, main 브랜치만)
+└── deploy job (needs: build-and-push, main만)
     ├── kubeconfig 설정
     ├── Kubernetes 배포 (k3s)
     ├── API Gateway 백엔드 업데이트
@@ -29,7 +36,7 @@ ci-cd.yml
 
 ## 🔐 GitHub Secrets 설정
 
-### 필수 Secrets (3개만!)
+### 필수 Secrets (4개, main에서 Terraform apply 사용 시)
 
 GitHub 저장소의 **Settings → Secrets and variables → Actions**에서 다음 Secrets를 등록해야 합니다:
 
@@ -38,19 +45,23 @@ GitHub 저장소의 **Settings → Secrets and variables → Actions**에서 다
 | `AWS_ACCESS_KEY_ID`     | AWS 액세스 키 ID                | `AKIAIOSFODNN7EXAMPLE`                     | ✅ 필수   |
 | `AWS_SECRET_ACCESS_KEY` | AWS 시크릿 액세스 키            | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` | ✅ 필수   |
 | `SSH_PRIVATE_KEY`       | EC2 인스턴스 접근용 SSH 개인 키 | `-----BEGIN RSA PRIVATE KEY-----...`       | ✅ 필수   |
+| `TF_STATE_BUCKET`       | Terraform state S3 버킷 이름    | `TERRAFORM_STATE_BUCKET` (버킷 이름만)   | ✅ 필수*  |
+
+\* **TF_STATE_BUCKET**: main 브랜치 push 시 `terraform apply`가 CI에서 실행되므로 **필수**입니다. PR에서 `terraform plan`을 보려면 역시 필요합니다. 아래 "Terraform S3 백엔드"에서 버킷 생성 후 등록하세요.
 
 ### 자동 조회되는 값들 (Secrets 불필요)
 
-다음 값들은 워크플로우가 자동으로 조회하므로 GitHub Secrets에 등록할 필요가 없습니다:
+인프라는 **로컬에서 Terraform으로 한 번 세팅**한 뒤, CI는 **이미지 빌드 + k8s 배포**만 담당합니다.  
+필요한 값(EC2 IP, API Gateway ID 등)은 CI에서 **AWS CLI로 현재 리소스를 조회**합니다:
 
-| 값 이름               | 자동 조회 방법             | 워크플로우 단계              | 설명                                                     |
-| --------------------- | -------------------------- | ---------------------------- | -------------------------------------------------------- |
-| `EC2_PUBLIC_IP`       | Terraform output → AWS CLI | `Get infrastructure values`  | EC2 인스턴스 Public IP 자동 조회                         |
-| `API_GATEWAY_ID`      | Terraform output → AWS CLI | `Get infrastructure values`  | API Gateway ID 자동 조회 (authcore 이름 패턴 검색)       |
-| `JWT_SECRET`          | Secrets Manager            | `Deploy to Kubernetes (k3s)` | `deploy_to_k8s.py`가 자동으로 Secrets Manager에서 가져옴 |
-| `SECRETS_MANAGER_ARN` | Terraform output → AWS CLI | `Get infrastructure values`  | Secrets Manager ARN 자동 조회                            |
+| 값 이름               | 자동 조회 방법   | 워크플로우 단계              | 설명                                                     |
+| --------------------- | ---------------- | ---------------------------- | -------------------------------------------------------- |
+| `EC2_PUBLIC_IP`       | AWS CLI          | `Get infrastructure values`  | EC2 인스턴스 Public IP 조회                              |
+| `API_GATEWAY_ID`      | AWS CLI          | `Get infrastructure values`  | API Gateway ID 조회 (authcore 이름 패턴)                 |
+| `JWT_SECRET`          | Secrets Manager  | `Deploy to Kubernetes (k3s)` | `deploy_to_k8s.py`가 Secrets Manager에서 가져옴           |
+| `SECRETS_MANAGER_ARN` | AWS CLI          | `Get infrastructure values`  | Secrets Manager ARN 조회                                 |
 
-**🎉 개선 사항**: 이제 **필수 Secrets가 3개만** 필요합니다!
+**🎉 개선 사항**: **필수 Secrets 4개** (TF_STATE_BUCKET 포함) 등록 시 plan/apply·빌드·배포 모두 CI에서 동작합니다.
 
 ---
 
@@ -77,13 +88,13 @@ env:
 
 ```
 test job 실행
-  ↓
-테스트 결과 확인
+  ↓ (성공 시)
+terraform-plan job (TF_STATE_BUCKET 있으면)
+  └── terraform plan → 인프라 변경 미리보기 (생성/수정/삭제 가시화)
 ```
 
-- **실행되는 job**: `test`만
-- **목적**: 코드 변경 사항 검증
-- **결과**: 테스트 통과 여부 확인
+- **실행되는 job**: `test`, (선택) `terraform-plan`
+- **목적**: 코드·인프라 변경 검증. plan으로 "이 PR 머지하면 인프라에 뭐가 바뀌는지" 확인 가능
 
 ### 2. develop 브랜치에 push
 
@@ -101,43 +112,75 @@ test job 실행
 ```
 test job
   ↓ (성공 시)
+terraform-apply job  ← 인프라 반영 (추가 AWS 서비스, 보안 조치 등 전부 코드·이력 관리)
+  ↓ (성공 시)
 build-and-push job
   ↓ (성공 시)
 deploy job
 ```
 
-- **실행되는 job**: `test` → `build-and-push` → `deploy` (순차 실행)
-- **목적**: 프로덕션 배포
-- **조건**: 모든 이전 job이 성공해야 다음 job 실행
+- **실행되는 job**: `test` → `terraform-apply` → `build-and-push` → `deploy`
+- **목적**: 인프라 적용 후 앱 이미지 빌드·배포. **인프라 변경도 Git + CI 이력으로 남음**
+- **조건**: TF_STATE_BUCKET 필수 (없으면 apply 단계에서 실패)
 
 ---
 
-## 🔄 자동 조회 로직
+## 🏗️ Terraform S3 백엔드 (인프라 이력 관리)
 
-워크플로우는 다음 순서로 값을 조회합니다:
+main push 시 **terraform apply**가 CI에서 실행되려면 **state를 S3에 두고** GitHub Secrets에 **TF_STATE_BUCKET**을 등록해야 합니다.  
+이렇게 하면 **인프라 추가·보안 조치 등 모든 변경이 Git + CI 이력**으로 남습니다.
 
-1. **Terraform output 시도** (가장 빠름)
-   - `terraform output -raw <output_name>` 실행
-   - Terraform state가 있는 경우 사용
+### 1. S3 버킷 생성 (한 번만)
 
-2. **AWS CLI로 조회** (fallback)
-   - Terraform output이 없거나 실패한 경우
-   - AWS 리소스를 직접 조회
+```bash
+aws s3 mb s3://YOUR_TERRAFORM_STATE_BUCKET --region ap-northeast-2
+aws s3api put-bucket-versioning --bucket YOUR_TERRAFORM_STATE_BUCKET \
+  --versioning-configuration Status=Enabled
+```
 
-3. **실패 시 에러** (필수 값인 경우)
-   - 필수 값(예: EC2_PUBLIC_IP)이 없으면 워크플로우 실패
+(버킷 이름 예: `authcore-terraform-state`)
+
+### 2. GitHub Secrets에 등록
+
+- **TF_STATE_BUCKET** = `YOUR_TERRAFORM_STATE_BUCKET` (버킷 이름만, `s3://` 제외)
+
+### 3. 로컬에서 state를 S3로 이전 (기존 로컬 state가 있다면)
+
+```bash
+cd terraform
+terraform init -reconfigure \
+  -backend-config="bucket=YOUR_TERRAFORM_STATE_BUCKET" \
+  -backend-config="key=authcore/prod/terraform.tfstate" \
+  -backend-config="region=ap-northeast-2"
+# 마이그레이션 프롬프트에서 yes 입력 시 로컬 state가 S3로 복사됨
+terraform plan  # 확인 후 필요 시 apply
+```
+
+bucket/key/region은 위 명령줄 또는 `-backend-config=backend.hcl` 형태의 파일로 전달하면 됩니다.
+
+---
+
+## 🔄 자동 조회 로직 (deploy job)
+
+**배포(deploy)** 단계에서는 여전히 **AWS CLI**로 EC2 IP, API Gateway ID 등을 조회합니다.  
+(인프라 반영은 `terraform-apply` job에서 하고, deploy는 그 위에서 앱만 배포)
+
+### CI에서의 조회
+
+- **EC2_PUBLIC_IP**: `aws ec2 describe-instances` (필수. 없으면 배포 실패)
+- **API_GATEWAY_ID**: `aws apigatewayv2 get-apis` (없으면 "Update API Gateway backend" 단계만 스킵)
+- **SECRETS_MANAGER_ARN**: `aws secretsmanager describe-secret` (없으면 JWT_SECRET은 기본값 등 사용)
 
 ### 자동 조회되는 값 상세
 
 #### EC2_PUBLIC_IP
 
-- **1차 시도**: `terraform output -raw ec2_public_ip`
-- **2차 시도**: `aws ec2 describe-instances --filters "Name=tag:Name,Values=authcore-k8s-node-prod"`
+- **CI**: `aws ec2 describe-instances --filters "Name=tag:Name,Values=authcore-k8s-node-prod"` (필수)
 
 #### API_GATEWAY_ID
 
-- **1차 시도**: `terraform output -raw api_gateway_id`
-- **2차 시도**: `aws apigatewayv2 get-apis --query "Items[?contains(Name, 'authcore')].ApiId"`
+- **CI**: `aws apigatewayv2 get-apis --query "Items[?contains(Name, 'authcore')].ApiId"`  
+- **없을 때**: "Update API Gateway backend" 단계 스킵 (배포 자체는 성공)
 
 #### JWT_SECRET
 
@@ -146,8 +189,7 @@ deploy job
 
 #### SECRETS_MANAGER_ARN
 
-- **1차 시도**: `terraform output -raw secrets_manager_arn`
-- **2차 시도**: `aws secretsmanager describe-secret --secret-id "authcore/jwt-secret-prod"`
+- **CI**: `aws secretsmanager describe-secret --secret-id "authcore/jwt-secret-prod"` (선택)
 
 ---
 
@@ -159,9 +201,11 @@ deploy job
 # AWS IAM 콘솔에서 사용자 생성
 # 필요한 권한:
 # - ECR: 이미지 푸시/풀
-# - EC2: 인스턴스 조회
+# - EC2: 인스턴스 조회·생성·수정 (Terraform apply 시)
 # - Secrets Manager: JWT_SECRET 읽기
 # - API Gateway: 백엔드 업데이트
+# - S3: Terraform state 버킷 읽기/쓰기 (TF_STATE_BUCKET)
+# - 기타 Terraform이 관리하는 리소스 (DynamoDB, VPC, IAM 등)
 ```
 
 **GitHub Secrets에 등록:**
@@ -186,8 +230,9 @@ cat ~/.ssh/authcore-k8s-key.pem
 - [ ] `AWS_ACCESS_KEY_ID` 등록
 - [ ] `AWS_SECRET_ACCESS_KEY` 등록
 - [ ] `SSH_PRIVATE_KEY` 등록
+- [ ] S3 버킷 생성 후 `TF_STATE_BUCKET` 등록 (main에서 terraform apply 사용 시 필수)
 
-**완료!** 나머지 값들은 워크플로우가 자동으로 조회합니다.
+**완료!** PR에서 `terraform plan`, main push에서 `terraform apply` → 인프라 변경 전부 이력 관리됩니다.
 
 ---
 
@@ -247,7 +292,7 @@ cat ~/.ssh/authcore-k8s-key.pem
 9. SSH 키 설정
 10. kubeconfig 설정
 11. Kubernetes 배포 (k3s)
-12. API Gateway 백엔드 업데이트 (변경된 경우에만)
+12. API Gateway 백엔드 업데이트 (API_GATEWAY_ID가 있을 때만, 변경된 경우에만)
 13. 배포 검증
 
 **소요 시간**: 약 5-7분
@@ -269,6 +314,19 @@ cat ~/.ssh/authcore-k8s-key.pem
 - 워크플로우 실행 시간 단축
 - API Gateway 변경 이력 최소화
 
+#### API Gateway 백엔드 업데이트 조건부 실행
+
+- **API_GATEWAY_ID가 없을 때**: "Update API Gateway backend" 단계는 **스킵**됩니다. 배포(K8s)는 그대로 진행됩니다.
+- **API_GATEWAY_ID가 있을 때만**: API Gateway Integration 업데이트가 실행됩니다.
+
+---
+
+## 🔧 워크플로우 설계 (인프라 + 앱 이력 관리)
+
+- **인프라**: Terraform 코드로 관리. **PR 시 plan**, **main push 시 apply** → 추가 AWS 서비스, 보안 조치 등 **전부 Git·CI 이력**으로 남음.
+- **CI 역할**: `terraform-apply` 후 이미지 빌드 + k8s 배포. 배포 시 필요한 값(EC2 IP, API Gateway ID 등)은 **AWS CLI**로 조회.
+- **선택적 단계**: API_GATEWAY_ID가 없으면 "Update API Gateway backend" 단계만 스킵 (`if: steps.infra_values.outputs.API_GATEWAY_ID != ''`).
+
 ## ⚠️ 보안 주의사항
 
 1. **절대 공개하지 마세요**: Secrets는 절대 코드나 문서에 하드코딩하지 마세요
@@ -284,15 +342,15 @@ cat ~/.ssh/authcore-k8s-key.pem
 
 1. **Secrets 확인**
    - GitHub 저장소 → Settings → Secrets and variables → Actions
-   - 필수 Secrets 3개가 모두 등록되어 있는지 확인
+   - 필수 Secrets 4개(AWS 2개, SSH_PRIVATE_KEY, TF_STATE_BUCKET)가 모두 등록되어 있는지 확인
 
 2. **AWS 권한 확인**
    - IAM 사용자에게 필요한 권한이 있는지 확인
    - ECR, EC2, Secrets Manager, API Gateway 접근 권한 필요
 
-3. **Terraform 상태 확인**
-   - Terraform이 정상적으로 적용되었는지 확인
-   - `terraform output` 명령어로 출력값 확인
+3. **인프라 확인**
+   - 로컬에서 Terraform 적용이 완료되었는지 확인 (EC2, ECR, API Gateway 등)
+   - AWS 콘솔에서 리소스 존재 여부 확인
 
 4. **워크플로우 로그 확인**
    - GitHub Actions 탭에서 워크플로우 실행 로그 확인
@@ -310,10 +368,11 @@ cat ~/.ssh/authcore-k8s-key.pem
 - **원인**: ECR 리포지토리가 생성되지 않음
 - **해결**: Terraform으로 ECR 리포지토리 생성
 
-#### "API Gateway ID not found"
+#### "API Gateway ID not found" / API Gateway 단계 스킵
 
-- **원인**: API Gateway가 없거나 이름이 다름
-- **해결**: AWS 콘솔에서 API Gateway 확인, Terraform output 확인
+- **원인**: API Gateway가 없거나 이름이 authcore/AuthCore를 포함하지 않음
+- **동작**: "Update API Gateway backend" 단계는 **스킵**되고, K8s 배포는 정상 완료됨
+- **해결**: API Gateway가 필요하면 AWS 콘솔에서 생성 후 이름에 `authcore` 포함, 또는 Terraform 적용
 
 #### "JWT secret not found"
 
@@ -334,7 +393,7 @@ cat ~/.ssh/authcore-k8s-key.pem
 
 ## 🎉 요약
 
-- **필수 Secrets**: 3개만 등록하면 됨
+- **필수 Secrets**: 4개(AWS 2개, SSH_PRIVATE_KEY, TF_STATE_BUCKET) 등록
 - **자동 조회**: 4개 값 자동 조회
 - **워크플로우**: test → build → deploy 순차 실행
 - **비용 최적화**: 최소 비용으로 컨테이너 오케스트레이션 실습 가능

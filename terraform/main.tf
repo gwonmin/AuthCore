@@ -12,12 +12,11 @@ terraform {
     }
   }
 
-  # Terraform State 저장소 (선택사항 - S3 백엔드 사용 시)
-  # backend "s3" {
-  #   bucket = "authcore-terraform-state"
-  #   key    = "terraform.tfstate"
-  #   region = "ap-northeast-2"
-  # }
+  # CI에서 plan/apply 사용 시 S3 백엔드 필요. bucket/key/region은 init 시 -backend-config로 전달
+  # 로컬: terraform init -reconfigure -backend-config="bucket=YOUR_BUCKET" -backend-config="key=authcore/prod/terraform.tfstate" -backend-config="region=ap-northeast-2"
+  backend "s3" {
+    # partial config - CI/로컬 모두 init 시 -backend-config로 전달
+  }
 }
 
 provider "aws" {

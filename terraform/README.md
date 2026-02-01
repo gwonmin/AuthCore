@@ -20,10 +20,17 @@
 
 ### 1. 초기화
 
+**CI에서 plan/apply**를 쓰므로 state는 **S3 백엔드**를 사용합니다. bucket/key/region은 `init` 시 `-backend-config`로 전달합니다.
+
 ```bash
 cd terraform
-terraform init
+terraform init -reconfigure \
+  -backend-config="bucket=YOUR_TERRAFORM_STATE_BUCKET" \
+  -backend-config="key=authcore/prod/terraform.tfstate" \
+  -backend-config="region=ap-northeast-2"
 ```
+
+(로컬 state에서 S3로 이전 시: 위 `init -reconfigure` 실행 후 마이그레이션 프롬프트에서 `yes` 입력)
 
 ### 2. 계획 확인
 

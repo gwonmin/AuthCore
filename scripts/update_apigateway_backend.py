@@ -9,6 +9,7 @@ import boto3
 import subprocess
 import json
 import time
+import shutil
 from pathlib import Path
 
 # 색상 출력
@@ -32,13 +33,17 @@ def print_step(msg):
     print(f"{Colors.BLUE}🚀 {msg}{Colors.NC}")
 
 def get_terraform_outputs(terraform_dir: str = 'terraform') -> dict:
-    """Terraform output 값 가져오기"""
+    """Terraform output 값 가져오기 (CI에서는 Terraform 미설치 시 env 변수 사용)"""
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
     terraform_path = project_root / terraform_dir
     
     if not terraform_path.exists():
-        print_error(f"Terraform directory not found: {terraform_path}")
+        print_info("Terraform directory not found, using environment variables")
+        return {}
+    
+    if not shutil.which('terraform'):
+        print_info("Terraform not installed (e.g. in CI), using environment variables")
         return {}
     
     try:
@@ -52,8 +57,8 @@ def get_terraform_outputs(terraform_dir: str = 'terraform') -> dict:
         
         outputs = json.loads(result.stdout)
         return {k: v.get('value', '') for k, v in outputs.items()}
-    except Exception as e:
-        print_error(f"Failed to get Terraform outputs: {e}")
+    except Exception:
+        print_info("Terraform output unavailable (no state or not applied), using environment variables")
         return {}
 
 def get_k8s_backend_url(namespace: str = 'authcore', service_name: str = 'authcore-api', timeout: int = 300) -> str:
@@ -318,8 +323,8 @@ def main():
     namespace = os.getenv('NAMESPACE', 'authcore')
     service_name = os.getenv('SERVICE_NAME', 'authcore-api')
     
-    # 1. Terraform outputs 가져오기
-    print_step("Step 1: Getting Terraform outputs...")
+    # 1. Terraform outputs 또는 환경 변수에서 API Gateway ID 가져오기
+    print_step("Step 1: Getting API Gateway ID (Terraform output or env)...")
     outputs = get_terraform_outputs()
     
     api_gateway_id = outputs.get('api_gateway_id', '')
