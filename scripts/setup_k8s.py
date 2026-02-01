@@ -67,10 +67,13 @@ def main():
     # 환경 변수 설정
     ec2_ip = os.getenv('EC2_IP', '')
     ssh_key = os.getenv('SSH_KEY', os.path.expanduser('~/.ssh/id_rsa'))
-    kubeconfig_path = os.getenv('KUBECONFIG', os.path.expanduser('~/.kube/config'))
+    kubeconfig_path = os.path.expanduser(os.getenv('KUBECONFIG', '~/.kube/config'))
     
     # EC2 IP 확인
     if not ec2_ip:
+        if not os.isatty(0):
+            print_error("EC2_IP is required (CI: set EC2_PUBLIC_IP in Get infrastructure values step)")
+            sys.exit(1)
         print_info("EC2_IP not set")
         print_info("Get EC2 IP from Terraform output:")
         print("   terraform output -raw ec2_public_ip")
@@ -85,24 +88,32 @@ def main():
     ssh_key_path = ssh_key
     temp_ssh_key = None
     
-    # SSH 키가 파일 경로가 아닌 경우 (예: GitHub Actions secrets)
-    if not os.path.exists(ssh_key):
-        # 키 내용인지 확인 (-----BEGIN로 시작하는지)
-        if ssh_key.startswith('-----BEGIN'):
-            # 임시 파일로 저장
-            temp_ssh_key = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.pem')
-            temp_ssh_key.write(ssh_key)
-            temp_ssh_key.close()
-            ssh_key_path = temp_ssh_key.name
-            os.chmod(ssh_key_path, 0o600)
-            print_info("SSH key saved to temporary file")
-        else:
-            print_info(f"SSH key not found at {ssh_key}")
+    # 경로인 경우 ~ 확장 (CI에서 SSH_KEY=~/.ssh/id_rsa 로 넘길 때 필요)
+    ssh_key_expanded = os.path.expanduser(ssh_key) if isinstance(ssh_key, str) and not ssh_key.startswith('-----BEGIN') else ssh_key
+    
+    # SSH 키가 파일 경로가 아닌 경우 (예: GitHub Actions에서 경로 전달 시 파일 있음, 키 내용 전달 시 BEGIN으로 시작)
+    if ssh_key.startswith('-----BEGIN'):
+        # 키 내용이 env로 직접 전달된 경우
+        temp_ssh_key = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.pem')
+        temp_ssh_key.write(ssh_key)
+        temp_ssh_key.close()
+        ssh_key_path = temp_ssh_key.name
+        os.chmod(ssh_key_path, 0o600)
+        print_info("SSH key saved to temporary file")
+    elif os.path.exists(ssh_key_expanded):
+        ssh_key_path = ssh_key_expanded
+    else:
+        # 파일 경로였는데 없음 → CI가 아닐 때만 입력 요청
+        if os.isatty(0):
+            print_info(f"SSH key not found at {ssh_key_expanded}")
             ssh_key = input("Enter SSH key path: ").strip()
-            if not os.path.exists(ssh_key):
-                print_error(f"SSH key not found: {ssh_key}")
+            ssh_key_path = os.path.expanduser(ssh_key) if ssh_key else ""
+            if not ssh_key_path or not os.path.exists(ssh_key_path):
+                print_error(f"SSH key not found: {ssh_key_path or ssh_key}")
                 sys.exit(1)
-            ssh_key_path = ssh_key
+        else:
+            print_error(f"SSH key not found at {ssh_key_expanded} (CI: ensure Setup SSH key step wrote to this path)")
+            sys.exit(1)
     
     # kubeconfig 디렉토리 생성
     kubeconfig_dir = Path(kubeconfig_path).parent

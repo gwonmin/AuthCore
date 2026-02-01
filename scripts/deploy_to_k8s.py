@@ -29,7 +29,7 @@ def print_info(msg):
 
 def run_kubectl(cmd, check=True):
     """kubectl 명령어 실행"""
-    kubeconfig = os.getenv('KUBECONFIG', os.path.expanduser('~/.kube/config'))
+    kubeconfig = os.path.expanduser(os.getenv('KUBECONFIG', '~/.kube/config'))
     env = os.environ.copy()
     env['KUBECONFIG'] = kubeconfig
     
@@ -51,7 +51,7 @@ def run_kubectl(cmd, check=True):
 
 def run_kubectl_with_output(cmd, check=True):
     """kubectl 명령어 실행 (성공/실패 여부와 출력 반환)"""
-    kubeconfig = os.getenv('KUBECONFIG', os.path.expanduser('~/.kube/config'))
+    kubeconfig = os.path.expanduser(os.getenv('KUBECONFIG', '~/.kube/config'))
     env = os.environ.copy()
     env['KUBECONFIG'] = kubeconfig
     
@@ -396,7 +396,7 @@ def setup_kubeconfig_for_local(terraform_outputs: dict):
         print_info("EC2 Public IP not found, skipping kubeconfig update")
         return
     
-    kubeconfig_path = os.getenv('KUBECONFIG', os.path.expanduser('~/.kube/config'))
+    kubeconfig_path = os.path.expanduser(os.getenv('KUBECONFIG', '~/.kube/config'))
     if not os.path.exists(kubeconfig_path):
         print_info(f"kubeconfig not found at {kubeconfig_path}")
         print_info("Please run 'python scripts/setup_local_kubeconfig.py' first")
@@ -464,8 +464,8 @@ def main():
     # 로컬에서 실행 시 kubeconfig 자동 설정
     setup_kubeconfig_for_local(terraform_outputs)
     
-    # 환경 변수 설정 (Terraform output 우선, 없으면 환경 변수, 마지막으로 기본값)
-    kubeconfig = os.getenv('KUBECONFIG', os.path.expanduser('~/.kube/config'))
+    # 환경 변수 설정 (Terraform output 우선, 없으면 환경 변수, 마지막으로 기본값). ~ 확장 (CI에서 KUBECONFIG=~/.kube/config 대비)
+    kubeconfig = os.path.expanduser(os.getenv('KUBECONFIG', '~/.kube/config'))
     namespace = os.getenv('NAMESPACE', 'authcore')
     environment = os.getenv('ENVIRONMENT', 'prod')
     aws_region = os.getenv('AWS_REGION', terraform_outputs.get('aws_region', 'ap-northeast-2'))

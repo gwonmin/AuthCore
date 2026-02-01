@@ -65,7 +65,7 @@ def get_k8s_backend_url(namespace: str = 'authcore', service_name: str = 'authco
     """Kubernetes 백엔드 URL 가져오기 (LoadBalancer 또는 NodePort)"""
     print_step(f"Getting backend URL from Kubernetes...")
     
-    kubeconfig = os.getenv('KUBECONFIG', os.path.expanduser('~/.kube/config'))
+    kubeconfig = os.path.expanduser(os.getenv('KUBECONFIG', '~/.kube/config'))
     
     # 1. LoadBalancer 확인 (k3s는 klipper-lb 사용, IP 또는 hostname 반환 가능)
     start_time = time.time()
