@@ -11,10 +11,10 @@ variable "environment" {
 }
 
 variable "jwt_secret" {
-  description = "JWT Secret Key (Secrets Manager에 저장됨)"
+  description = "JWT Secret - Terraform에서 Secrets Manager 값으로 쓰지 않음. 로컬/스크립트용으로만 사용 가능."
   type        = string
   sensitive   = true
-  default     = "your-super-secret-jwt-key-change-this-in-production"
+  default     = ""
 }
 
 variable "dynamodb_read_capacity" {
@@ -45,4 +45,15 @@ variable "ec2_instance_type" {
   description = "EC2 인스턴스 타입 (권장: t3.medium 이상, 최소: t3.small)"
   type        = string
   default     = "t3.small"
+}
+
+variable "jwt_rotation_days" {
+  description = "JWT 시크릿 자동 로테이션 주기 (일). AWS 최소 1일."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.jwt_rotation_days >= 1
+    error_message = "jwt_rotation_days must be at least 1."
+  }
 }

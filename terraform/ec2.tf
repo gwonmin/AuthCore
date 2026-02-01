@@ -180,6 +180,14 @@ resource "aws_instance" "k8s_node" {
     Environment = var.environment
     ManagedBy   = "Terraform"
   }
+
+  # import한 기존 EC2가 다른 subnet/SG에 있으면 replace 방지 (기존 인스턴스 유지)
+  lifecycle {
+    ignore_changes = [
+      subnet_id,
+      vpc_security_group_ids,
+    ]
+  }
 }
 
 # Elastic IP (선택사항 - 고정 IP)

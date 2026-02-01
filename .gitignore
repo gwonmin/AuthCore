@@ -123,12 +123,14 @@ terraform/*.tfstate.*
 terraform/.terraform/
 terraform/.terraform.lock.hcl
 terraform/*.tfplan
+terraform/backend.hcl
 terraform/crash.log
 terraform/override.tf
 terraform/override.tf.json
 terraform/*_override.tf
 terraform/*_override.tf.json
 terraform/lambda_function.zip
+terraform/jwt_rotation.zip
 terraform/terraform.tfvars
 *.tfvars
 

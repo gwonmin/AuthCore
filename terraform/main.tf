@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
 
   # CI에서 plan/apply 사용 시 S3 백엔드 필요. bucket/key/region은 init 시 -backend-config로 전달
