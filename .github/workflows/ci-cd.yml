@@ -65,9 +65,10 @@ jobs:
           retention-days: 7
 
   # PR 시 인프라 변경 미리보기 (현업: plan으로 무엇이 바뀌는지 100% 가시화)
+  # job 수준 if에서는 secrets 사용 불가 → TF_STATE_BUCKET 여부는 첫 단계에서 확인
   terraform-plan:
     needs: test
-    if: github.event_name == 'pull_request' && secrets.TF_STATE_BUCKET != ''
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -76,7 +77,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check TF_STATE_BUCKET
+        id: check
+        env:
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+        run: |
+          if [ -n "$TF_STATE_BUCKET" ]; then
+            echo "run_plan=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_plan=false" >> $GITHUB_OUTPUT
+            echo "⏭️ TF_STATE_BUCKET not set, skipping terraform plan"
+          fi
+
       - name: Configure AWS credentials
+        if: steps.check.outputs.run_plan == 'true'
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -84,12 +98,14 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
+        if: steps.check.outputs.run_plan == 'true'
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.6.0"
           terraform_wrapper: false
 
       - name: Terraform Init
+        if: steps.check.outputs.run_plan == 'true'
         env:
           TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
         run: |
@@ -99,6 +115,7 @@ jobs:
             -backend-config="region=${{ env.AWS_REGION }}"
 
       - name: Terraform Plan
+        if: steps.check.outputs.run_plan == 'true'
         run: terraform plan -no-color -input=false
         env:
           TF_IN_AUTOMATION: true
