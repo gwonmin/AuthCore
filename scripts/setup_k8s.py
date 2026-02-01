@@ -45,12 +45,25 @@ def check_kubectl():
     success, _, _ = run_command("kubectl version --client", check=False)
     return success
 
+def _rewrite_kubeconfig_server(kubeconfig_path: str, server_ip: str, port: int = 6443):
+    """kubeconfig의 server 주소를 지정 IP로 변경 (EC2에서 복사한 k3s 설정은 127.0.0.1이라 CI에서 접근 불가)"""
+    import re
+    with open(kubeconfig_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    # server: https://127.0.0.1:6443 또는 https://10.x.x.x:6443 등 → https://<server_ip>:6443
+    new_server = f"https://{server_ip}:{port}"
+    content = re.sub(r'server:\s*https://[^:\s]+:\d+', f'server: {new_server}', content)
+    with open(kubeconfig_path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    print_info(f"Kubeconfig server set to {new_server}")
+
+
 def verify_cluster(kubeconfig_path):
     """클러스터 연결 확인"""
     env = os.environ.copy()
-    env['KUBECONFIG'] = kubeconfig_path
+    env['KUBECONFIG'] = os.path.expanduser(kubeconfig_path) if isinstance(kubeconfig_path, str) else kubeconfig_path
     
-    success, output, _ = run_command("kubectl cluster-info", check=False, env=env)
+    success, output, err = run_command("kubectl cluster-info", check=False, env=env)
     if success:
         print_success("Successfully connected to cluster!")
         # 환경 변수 전달하여 노드 확인
@@ -58,6 +71,8 @@ def verify_cluster(kubeconfig_path):
         if success_nodes:
             print_info(output_nodes)
         return True
+    if err:
+        print_error(err)
     return False
 
 def main():
@@ -145,6 +160,9 @@ def main():
     
     # kubeconfig 권한 설정
     os.chmod(kubeconfig_path, 0o600)
+    
+    # kubeconfig server를 EC2 퍼블릭 IP로 변경 (k3s 기본은 127.0.0.1 → CI 러너에서 접근 불가)
+    _rewrite_kubeconfig_server(kubeconfig_path, ec2_ip)
     
     # 클러스터 연결 확인
     print_info("Verifying cluster connection...")
