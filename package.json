@@ -4,7 +4,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:unit": "jest tests/unit",
-    "test:integration": "jest tests/integration",
+    "test:integration": "jest tests/integration --coverage=false",
     "test:integration:real-db": "USE_REAL_DB=true jest tests/integration",
     "create-tables": "node scripts/create-tables.js",
     "start": "node src/index.js",
