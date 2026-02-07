@@ -1,0 +1,53 @@
+# QUIZNOX Cursor Rules (default instructions for all AI edits)
+
+## Core principles
+- Always follow Clean Code principles: readability > cleverness.
+- Prefer small, single-responsibility functions/modules.
+- Avoid deep nesting; use early returns/guard clauses.
+- Prefer explicitness over implicit behavior.
+
+## TypeScript / React
+- TypeScript strict mindset: no implicit any, avoid `as` type assertions unless unavoidable.
+- Prefer `unknown` + type guards over `any`.
+- Prefer named exports for utilities; default export only for React components (1 per file).
+- Keep components presentational when possible; move domain logic to hooks/services.
+- Avoid overusing useEffect; derive state when possible.
+- Use stable callbacks/memoization only when it's measurable/necessary, not by default.
+
+## Architecture / boundaries
+- Separate concerns:
+  - UI components: rendering + user interaction only
+  - hooks: orchestration + side effects
+  - services: API calls / persistence
+  - domain: pure business rules (no fetch, no localStorage, no React)
+- Do not mix network calls directly inside UI components unless the file is explicitly a page-level container.
+
+## Error handling & robustness
+- Add proper error handling for async calls (try/catch) and surface user-friendly errors.
+- Never swallow errors silently.
+- Validate external inputs (API responses, user input) using schema validation (e.g., zod) when applicable.
+
+## Testing mindset (even if tests are not requested)
+- Write code that is testable: pure functions, dependency injection where it helps.
+- When changing logic, consider edge cases and add minimal tests if the project already has a test setup.
+
+## Naming & style
+- Use intention-revealing names: no abbreviations unless common (id, url).
+- No magic numbers/strings; extract constants.
+- Keep file sizes reasonable; refactor if a file grows too large.
+- Comments should explain WHY, not WHAT.
+
+## Performance & DX
+- Avoid premature optimization.
+- Prefer simple, predictable code.
+- Keep imports clean and sorted; remove unused code.
+
+## Refactor policy (important)
+- When editing code, also refactor nearby code if it improves clarity without changing behavior.
+- If a larger refactor is needed, propose a small incremental refactor plan and implement the first step.
+
+## Output expectations
+- For any non-trivial change, include a brief summary:
+  - What changed
+  - Why it changed
+  - Any follow-up TODOs
