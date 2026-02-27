@@ -163,10 +163,35 @@ jobs:
             -backend-config="key=authcore/${{ env.ENVIRONMENT }}/terraform.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}"
 
+      - name: Terraform Plan (check changes)
+        id: plan
+        env:
+          TF_IN_AUTOMATION: true
+        run: |
+          echo "Running terraform plan with detailed exit code..."
+          set +e
+          terraform plan -no-color -input=false -detailed-exitcode
+          exit_code=$?
+          if [ $exit_code -eq 0 ]; then
+            echo "No infrastructure changes detected."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          elif [ $exit_code -eq 2 ]; then
+            echo "Infrastructure changes detected."
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "Terraform plan failed with exit code $exit_code"
+            exit $exit_code
+          fi
+
       - name: Terraform Apply
+        if: steps.plan.outputs.has_changes == 'true'
         run: terraform apply -auto-approve -input=false -no-color
         env:
           TF_IN_AUTOMATION: true
+
+      - name: Skip Terraform Apply (no changes)
+        if: steps.plan.outputs.has_changes != 'true'
+        run: echo "No Terraform changes detected. Skipping apply and continuing to application build/deploy."
 
   build-and-push:
     needs: [test, terraform-apply]
