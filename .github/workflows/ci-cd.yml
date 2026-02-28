@@ -2,13 +2,19 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.gitignore'
+      - '.cursorrules'
   pull_request:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.gitignore'
+      - '.cursorrules'
   workflow_dispatch:
 
 env:
@@ -16,7 +22,32 @@ env:
   ENVIRONMENT: prod
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app_changed: ${{ steps.filter.outputs.app }}
+      deploy_changed: ${{ steps.filter.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'tests/**'
+              - 'Dockerfile'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'jest.config.js'
+            deploy:
+              - 'scripts/**'
+              - 'k8s/**'
+              - 'requirements.txt'
+
   test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.app_changed == 'true'
     runs-on: ubuntu-latest
 
     strategy:
@@ -65,8 +96,13 @@ jobs:
         continue-on-error: true
 
   build-and-push:
-    needs: [test]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [detect-changes, test]
+    if: >-
+      always() &&
+      needs.detect-changes.outputs.app_changed == 'true' &&
+      needs.test.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
@@ -119,8 +155,16 @@ jobs:
           ECR_REPOSITORY_URI: ${{ env.ECR_REPOSITORY_URI }}
 
   deploy:
-    needs: build-and-push
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [detect-changes, build-and-push]
+    if: >-
+      always() &&
+      needs.detect-changes.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request' &&
+      (
+        needs.build-and-push.result == 'success' ||
+        (needs.detect-changes.outputs.deploy_changed == 'true' && needs.detect-changes.outputs.app_changed != 'true')
+      )
     runs-on: ubuntu-latest
 
     steps:
@@ -176,6 +220,23 @@ jobs:
           echo "ECR_REPOSITORY_URI=$REPO_URI" >> $GITHUB_ENV
           echo "ECR_REPOSITORY_URI=$REPO_URI" >> $GITHUB_OUTPUT
 
+      - name: Resolve image tag
+        run: |
+          if [ "${{ needs.detect-changes.outputs.app_changed }}" == "true" ]; then
+            echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
+          else
+            LATEST_TAG=$(aws ecr describe-images \
+              --repository-name authcore-${{ env.ENVIRONMENT }} \
+              --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' \
+              --output text --region ${{ env.AWS_REGION }})
+            if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" == "None" ]; then
+              echo "::error::No existing image in ECR. App source must be built first."
+              exit 1
+            fi
+            echo "IMAGE_TAG=$LATEST_TAG" >> $GITHUB_ENV
+            echo "Deploying with latest existing image: $LATEST_TAG"
+          fi
+
       - name: Install kubectl
         uses: azure/setup-kubectl@v3
 
@@ -207,7 +268,7 @@ jobs:
           AWS_REGION: ${{ env.AWS_REGION }}
           USERS_TABLE: AuthCore_Users
           REFRESH_TOKENS_TABLE: AuthCore_RefreshTokens
-          IMAGE_URI: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}
+          IMAGE_URI: ${{ env.ECR_REPOSITORY_URI }}:${{ env.IMAGE_TAG }}
 
       - name: Update API Gateway backend
         if: steps.infra_values.outputs.API_GATEWAY_ID != ''
