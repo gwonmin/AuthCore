@@ -9,8 +9,6 @@ import boto3
 import subprocess
 import json
 import time
-import shutil
-from pathlib import Path
 
 # 색상 출력
 class Colors:
@@ -31,35 +29,6 @@ def print_info(msg):
 
 def print_step(msg):
     print(f"{Colors.BLUE}🚀 {msg}{Colors.NC}")
-
-def get_terraform_outputs(terraform_dir: str = 'terraform') -> dict:
-    """Terraform output 값 가져오기 (CI에서는 Terraform 미설치 시 env 변수 사용)"""
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent
-    terraform_path = project_root / terraform_dir
-    
-    if not terraform_path.exists():
-        print_info("Terraform directory not found, using environment variables")
-        return {}
-    
-    if not shutil.which('terraform'):
-        print_info("Terraform not installed (e.g. in CI), using environment variables")
-        return {}
-    
-    try:
-        result = subprocess.run(
-            ['terraform', 'output', '-json'],
-            capture_output=True,
-            text=True,
-            cwd=str(terraform_path),
-            check=True
-        )
-        
-        outputs = json.loads(result.stdout)
-        return {k: v.get('value', '') for k, v in outputs.items()}
-    except Exception:
-        print_info("Terraform output unavailable (no state or not applied), using environment variables")
-        return {}
 
 def get_k8s_backend_url(namespace: str = 'authcore', service_name: str = 'authcore-api', timeout: int = 300) -> str:
     """Kubernetes 백엔드 URL 가져오기 (LoadBalancer 또는 NodePort)"""
@@ -160,12 +129,7 @@ def get_k8s_backend_url(namespace: str = 'authcore', service_name: str = 'authco
             nodeport = port  # LoadBalancer의 port 사용
     
     if nodeport and nodeport != 'None':
-        # EC2 Public IP 가져오기 (Terraform output에서)
         ec2_ip = os.getenv('EC2_PUBLIC_IP', '')
-        if not ec2_ip:
-            # Terraform output에서 가져오기 시도
-            terraform_outputs = get_terraform_outputs()
-            ec2_ip = terraform_outputs.get('ec2_public_ip', '')
         
         if ec2_ip:
             url = f"http://{ec2_ip}:{nodeport}"
@@ -323,18 +287,10 @@ def main():
     namespace = os.getenv('NAMESPACE', 'authcore')
     service_name = os.getenv('SERVICE_NAME', 'authcore-api')
     
-    # 1. Terraform outputs 또는 환경 변수에서 API Gateway ID 가져오기
-    print_step("Step 1: Getting API Gateway ID (Terraform output or env)...")
-    outputs = get_terraform_outputs()
-    
-    api_gateway_id = outputs.get('api_gateway_id', '')
+    print_step("Step 1: Getting API Gateway ID...")
+    api_gateway_id = os.getenv('API_GATEWAY_ID', '')
     if not api_gateway_id:
-        # 환경 변수에서 가져오기 시도
-        api_gateway_id = os.getenv('API_GATEWAY_ID', '')
-    
-    if not api_gateway_id:
-        print_error("API Gateway ID not found")
-        print_info("Set API_GATEWAY_ID environment variable or ensure terraform/apigateway.tf is applied")
+        print_error("API Gateway ID not found. Set API_GATEWAY_ID environment variable.")
         sys.exit(1)
     
     print_success(f"API Gateway ID: {api_gateway_id}")
@@ -371,7 +327,6 @@ def main():
     create_api_gateway_routes(api_gateway_id, integration_id, aws_region)
     
     print_success("API Gateway backend configured successfully!")
-    print_info(f"API Gateway URL: {outputs.get('api_gateway_url', '')}")
     print_info(f"Backend URL: {loadbalancer_url}")
     
     print("\n" + "=" * 60)

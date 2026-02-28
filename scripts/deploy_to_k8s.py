@@ -335,31 +335,6 @@ def wait_for_deployment(namespace, deployment_name, timeout=300):
         sys.exit(1)
     print_success(f"Deployment '{deployment_name}' is ready")
 
-def get_terraform_outputs(terraform_dir: str = 'terraform') -> dict:
-    """Terraform output 값 가져오기"""
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent
-    terraform_path = project_root / terraform_dir
-    
-    if not terraform_path.exists():
-        print_info(f"Terraform directory not found: {terraform_path}")
-        return {}
-    
-    try:
-        result = subprocess.run(
-            ['terraform', 'output', '-json'],
-            capture_output=True,
-            text=True,
-            cwd=str(terraform_path),
-            check=True
-        )
-        
-        outputs = json.loads(result.stdout)
-        return {k: v.get('value', '') for k, v in outputs.items()}
-    except Exception as e:
-        print_info(f"Failed to get Terraform outputs: {e}")
-        return {}
-
 def get_jwt_secret_from_secrets_manager(secret_arn: str, region: str = 'ap-northeast-2') -> str:
     """Secrets Manager에서 JWT Secret 가져오기"""
     try:
@@ -389,104 +364,35 @@ def get_jwt_secret_from_secrets_manager(secret_arn: str, region: str = 'ap-north
         print_info(f"Failed to get JWT secret from Secrets Manager: {e}")
         return None
 
-def setup_kubeconfig_for_local(terraform_outputs: dict):
-    """로컬에서 실행 시 kubeconfig의 server 주소를 Public IP로 설정"""
-    public_ip = terraform_outputs.get('ec2_public_ip', '')
-    if not public_ip:
-        print_info("EC2 Public IP not found, skipping kubeconfig update")
-        return
-    
-    kubeconfig_path = os.path.expanduser(os.getenv('KUBECONFIG', '~/.kube/config'))
-    if not os.path.exists(kubeconfig_path):
-        print_info(f"kubeconfig not found at {kubeconfig_path}")
-        print_info("Please run 'python scripts/setup_local_kubeconfig.py' first")
-        return
-    
-    try:
-        # kubeconfig 읽기
-        with open(kubeconfig_path, 'r') as f:
-            content = f.read()
-        
-        # server 주소 추출
-        import re
-        server_match = re.search(r'server:\s+https://([^:]+):6443', content)
-        if not server_match:
-            print_info("Could not find server address in kubeconfig")
-            return
-        
-        current_server_ip = server_match.group(1)
-        
-        # 이미 올바른 IP로 설정되어 있으면 변경하지 않음
-        if current_server_ip == public_ip:
-            print_info(f"kubeconfig already configured with Public IP: {public_ip}")
-            return
-        
-        # Private IP (10.x.x.x, 172.x.x.x, 127.0.0.1)인 경우에만 자동 변경
-        # Public IP로 이미 설정되어 있으면 사용자가 수동으로 설정한 것으로 간주하고 변경하지 않음
-        is_private_ip = (
-            current_server_ip.startswith('10.') or 
-            current_server_ip.startswith('172.') or
-            current_server_ip == '127.0.0.1' or
-            current_server_ip.startswith('192.168.')
-        )
-        
-        if not is_private_ip:
-            print_info(f"kubeconfig server is set to {current_server_ip} (not a private IP)")
-            print_info("Skipping automatic update to preserve manual configuration.")
-            return
-        
-        # Private IP인 경우에만 Public IP로 변경
-        pattern = r'server:\s+https://[^:]+:6443'
-        new_server = f'server: https://{public_ip}:6443'
-        
-        if re.search(pattern, content):
-            # 백업 생성
-            backup_path = f"{kubeconfig_path}.backup"
-            with open(backup_path, 'w') as f:
-                f.write(content)
-            
-            content = re.sub(pattern, new_server, content)
-            with open(kubeconfig_path, 'w') as f:
-                f.write(content)
-            print_success(f"kubeconfig updated: server -> https://{public_ip}:6443")
-            print_info(f"Backup saved to: {backup_path}")
-    except Exception as e:
-        print_info(f"Failed to update kubeconfig: {e}")
-
 def main():
     """메인 함수"""
     print("🚀 Deploying to Kubernetes...")
     
-    # Terraform outputs 가져오기
-    print_info("Getting Terraform outputs...")
-    terraform_outputs = get_terraform_outputs()
-    
-    # 로컬에서 실행 시 kubeconfig 자동 설정
-    setup_kubeconfig_for_local(terraform_outputs)
-    
-    # 환경 변수 설정 (Terraform output 우선, 없으면 환경 변수, 마지막으로 기본값). ~ 확장 (CI에서 KUBECONFIG=~/.kube/config 대비)
     kubeconfig = os.path.expanduser(os.getenv('KUBECONFIG', '~/.kube/config'))
     namespace = os.getenv('NAMESPACE', 'authcore')
     environment = os.getenv('ENVIRONMENT', 'prod')
-    aws_region = os.getenv('AWS_REGION', terraform_outputs.get('aws_region', 'ap-northeast-2'))
+    aws_region = os.getenv('AWS_REGION', 'ap-northeast-2')
     
-    # DynamoDB 테이블 이름 (Terraform output에서 가져오기)
-    users_table = os.getenv('USERS_TABLE', terraform_outputs.get('users_table_name', 'AuthCore_Users'))
-    tokens_table = os.getenv('REFRESH_TOKENS_TABLE', terraform_outputs.get('refresh_tokens_table_name', 'AuthCore_RefreshTokens'))
+    users_table = os.getenv('USERS_TABLE', 'AuthCore_Users')
+    tokens_table = os.getenv('REFRESH_TOKENS_TABLE', 'AuthCore_RefreshTokens')
     
-    # JWT Secret 가져오기 (Secrets Manager 우선)
     jwt_secret = os.getenv('JWT_SECRET')
     if not jwt_secret:
-        # Secrets Manager에서 가져오기 시도
-        secrets_arn = terraform_outputs.get('secrets_manager_arn', '')
+        secrets_arn = os.getenv('SECRETS_MANAGER_ARN', '')
+        if not secrets_arn:
+            # AWS CLI로 Secrets Manager ARN 조회
+            try:
+                sm = boto3.client('secretsmanager', region_name=aws_region)
+                resp = sm.describe_secret(SecretId=f'authcore/jwt-secret-{environment}')
+                secrets_arn = resp.get('ARN', '')
+            except Exception:
+                pass
         if secrets_arn:
             print_info("Getting JWT secret from Secrets Manager...")
             jwt_secret = get_jwt_secret_from_secrets_manager(secrets_arn, aws_region)
-        
-        # 여전히 없으면 기본값
         if not jwt_secret:
             jwt_secret = 'your-super-secret-jwt-key-change-this-in-production'
-            print_info("⚠️  Using default JWT secret. Set JWT_SECRET environment variable or use Secrets Manager.")
+            print_info("Using default JWT secret. Set JWT_SECRET env or configure Secrets Manager.")
     
     # kubectl 확인
     if not check_kubectl():
@@ -516,12 +422,11 @@ def main():
     # 네임스페이스 생성
     create_namespace(namespace)
     
-    # ECR imagePullSecret 생성 (Terraform output 없으면 CI env ECR_REPOSITORY_URI 사용)
-    ecr_repo_url = terraform_outputs.get('ecr_repository_url', '') or os.getenv('ECR_REPOSITORY_URI', '')
+    ecr_repo_url = os.getenv('ECR_REPOSITORY_URI', '')
     if ecr_repo_url:
         create_ecr_secret(namespace, aws_region, ecr_repo_url)
     else:
-        print_info("ECR repository URL not set (terraform output or ECR_REPOSITORY_URI). imagePullSecret may be missing → ImagePullBackOff 가능")
+        print_info("ECR_REPOSITORY_URI not set. imagePullSecret may be missing.")
     
     # Secret 생성
     create_secrets(namespace, jwt_secret)

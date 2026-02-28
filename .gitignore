@@ -12,19 +12,9 @@ yarn-error.log*
 .env.production.local
 .image_uri
 
-# Serverless Framework
-.serverless/
-.serverless_plugins/
-
-# AWS
-.aws/
-
 # Logs
 logs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 lerna-debug.log*
 
 # Runtime data
@@ -33,28 +23,25 @@ pids/
 *.seed
 *.pid.lock
 
-# Coverage directory used by tools like istanbul
+# Coverage
 coverage/
 *.lcov
-
-# nyc test coverage
 .nyc_output
 
 # Dependency directories
-node_modules/
 jspm_packages/
 
-# Optional npm cache directory
+# npm
 .npm
-
-# Optional eslint cache
 .eslintcache
 
-# Microbundle cache
+# Caches
 .rpt2_cache/
 .rts2_cache_cjs/
 .rts2_cache_es/
 .rts2_cache_umd/
+.cache
+.parcel-cache
 
 # Optional REPL history
 .node_repl_history
@@ -62,40 +49,27 @@ jspm_packages/
 # Output of 'npm pack'
 *.tgz
 
-# Yarn Integrity file
+# Yarn
 .yarn-integrity
 
-# parcel-bundler cache (https://parceljs.org/)
-.cache
-.parcel-cache
-
-# Next.js build output
+# Build output
 .next
-
-# Nuxt.js build / generate output
 .nuxt
 dist
+build/
 
-# Gatsby files
-.cache/
-public
-
-# Storybook build outputs
-.out
-.storybook-out
-
-# Temporary folders
+# Temporary
 tmp/
 temp/
 
-# Editor directories and files
+# Editor
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS generated files
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -103,36 +77,6 @@ temp/
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# Docker
-.dockerignore
-
-# Test coverage
-coverage/
-
-# Build outputs
-build/
-dist/
-
-# Local development
-.local/
-
-# Terraform
-terraform/*.tfstate
-terraform/*.tfstate.*
-terraform/.terraform/
-terraform/.terraform.lock.hcl
-terraform/*.tfplan
-terraform/backend.hcl
-terraform/crash.log
-terraform/override.tf
-terraform/override.tf.json
-terraform/*_override.tf
-terraform/*_override.tf.json
-terraform/lambda_function.zip
-terraform/jwt_rotation.zip
-terraform/terraform.tfvars
-*.tfvars
 
 # Python
 __pycache__/
@@ -148,5 +92,6 @@ pip-log.txt
 pip-delete-this-directory.txt
 .pytest_cache/
 .mypy_cache/
-.dmypy.json
-dmypy.json
+
+# AWS
+.aws/

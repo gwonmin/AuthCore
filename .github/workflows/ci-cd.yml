@@ -18,11 +18,11 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     strategy:
       matrix:
         node-version: ['23.10.0']
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -42,7 +42,6 @@ jobs:
       - name: Run integration tests
         run: npm run test:integration
         env:
-          # 통합 테스트는 실제 DB 없이 실행 (모킹 사용)
           USE_REAL_DB: false
 
       - name: Generate coverage report
@@ -65,140 +64,11 @@ jobs:
           retention-days: 7
         continue-on-error: true
 
-  # PR 시 인프라 변경 미리보기 (현업: plan으로 무엇이 바뀌는지 100% 가시화)
-  # job 수준 if에서는 secrets 사용 불가 → TF_STATE_BUCKET 여부는 첫 단계에서 확인
-  terraform-plan:
-    needs: test
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: terraform
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Check TF_STATE_BUCKET
-        id: check
-        env:
-          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-        run: |
-          if [ -n "$TF_STATE_BUCKET" ]; then
-            echo "run_plan=true" >> $GITHUB_OUTPUT
-          else
-            echo "run_plan=false" >> $GITHUB_OUTPUT
-            echo "⏭️ TF_STATE_BUCKET not set, skipping terraform plan"
-          fi
-
-      - name: Configure AWS credentials
-        if: steps.check.outputs.run_plan == 'true'
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        if: steps.check.outputs.run_plan == 'true'
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.6.0"
-          terraform_wrapper: false
-
-      - name: Terraform Init
-        if: steps.check.outputs.run_plan == 'true'
-        env:
-          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-        run: |
-          terraform init -input=false -reconfigure \
-            -backend-config="bucket=$TF_STATE_BUCKET" \
-            -backend-config="key=authcore/${{ env.ENVIRONMENT }}/terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}"
-
-      - name: Terraform Plan
-        if: steps.check.outputs.run_plan == 'true'
-        run: terraform plan -no-color -input=false
-        env:
-          TF_IN_AUTOMATION: true
-
-  # main push 시 인프라 반영 (현업: 인프라도 코드·이력으로 관리)
-  terraform-apply:
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: terraform
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Require TF_STATE_BUCKET
-        run: |
-          if [ -z "${{ secrets.TF_STATE_BUCKET }}" ]; then
-            echo "❌ TF_STATE_BUCKET is required for Terraform in CI. Create an S3 bucket for state and add it to GitHub Secrets."
-            echo "💡 See WORKFLOW_GUIDE.md → Terraform S3 백엔드"
-            exit 1
-          fi
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.6.0"
-          terraform_wrapper: false
-
-      - name: Terraform Init
-        env:
-          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-        run: |
-          terraform init -input=false -reconfigure \
-            -backend-config="bucket=$TF_STATE_BUCKET" \
-            -backend-config="key=authcore/${{ env.ENVIRONMENT }}/terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}"
-
-      - name: Terraform Plan (check changes)
-        id: plan
-        env:
-          TF_IN_AUTOMATION: true
-        run: |
-          echo "Running terraform plan with detailed exit code..."
-          set +e
-          terraform plan -no-color -input=false -detailed-exitcode
-          exit_code=$?
-          if [ $exit_code -eq 0 ]; then
-            echo "No infrastructure changes detected."
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          elif [ $exit_code -eq 2 ]; then
-            echo "Infrastructure changes detected."
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "Terraform plan failed with exit code $exit_code"
-            exit $exit_code
-          fi
-
-      - name: Terraform Apply
-        if: steps.plan.outputs.has_changes == 'true'
-        run: terraform apply -auto-approve -input=false -no-color
-        env:
-          TF_IN_AUTOMATION: true
-
-      - name: Skip Terraform Apply (no changes)
-        if: steps.plan.outputs.has_changes != 'true'
-        run: echo "No Terraform changes detected. Skipping apply and continuing to application build/deploy."
-
   build-and-push:
-    needs: [test, terraform-apply]
-    # main 브랜치에서만 빌드 및 배포 (인프라 apply 후 실행)
+    needs: [test]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -210,8 +80,7 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -225,7 +94,7 @@ jobs:
         run: |
           REPO_URI=$(aws ecr describe-repositories --repository-names authcore-${{ env.ENVIRONMENT }} --query 'repositories[0].repositoryUri' --output text --region ${{ env.AWS_REGION }} || echo "")
           if [ -z "$REPO_URI" ]; then
-            echo "❌ ECR repository not found. Please create it with Terraform first."
+            echo "::error::ECR repository not found. Ensure cluster-infra has been applied."
             exit 1
           fi
           echo "ECR_REPOSITORY_URI=$REPO_URI" >> $GITHUB_ENV
@@ -235,7 +104,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y podman
-          # Podman이 rootless로 작동하도록 설정
           podman info || true
 
       - name: Login to ECR (Podman)
@@ -243,8 +111,7 @@ jobs:
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | podman login --username AWS --password-stdin ${{ env.ECR_REPOSITORY_URI }}
 
       - name: Build and push image with Podman
-        run: |
-          python scripts/build_and_push.py
+        run: python scripts/build_and_push.py
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           ENVIRONMENT: ${{ env.ENVIRONMENT }}
@@ -253,10 +120,9 @@ jobs:
 
   deploy:
     needs: build-and-push
-    # main 브랜치에서만 배포
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -268,8 +134,7 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -278,56 +143,34 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 인프라는 로컬 Terraform으로 이미 생성됨 → CI는 AWS CLI로 현재 리소스만 조회 (빌드·배포만 담당)
-      - name: Get infrastructure values
+      - name: Get infrastructure values from AWS
         id: infra_values
         run: |
-          echo "📥 Getting infrastructure values from AWS (EC2, API Gateway, Secrets Manager)..."
           EC2_IP=$(aws ec2 describe-instances \
             --filters "Name=tag:Name,Values=authcore-k8s-node-${{ env.ENVIRONMENT }}" "Name=instance-state-name,Values=running" \
             --query 'Reservations[0].Instances[0].PublicIpAddress' --output text --region ${{ env.AWS_REGION }} 2>/dev/null || echo "")
           API_GATEWAY_ID=$(aws apigatewayv2 get-apis --region ${{ env.AWS_REGION }} \
             --query "Items[?contains(Name, 'authcore') || contains(Name, 'AuthCore')].ApiId" --output text 2>/dev/null | awk '{print $1}' || echo "")
-          SECRETS_MANAGER_ARN=$(aws secretsmanager describe-secret \
-            --secret-id "authcore/jwt-secret-${{ env.ENVIRONMENT }}" --region ${{ env.AWS_REGION }} --query 'ARN' --output text 2>/dev/null || echo "")
-          
+
           if [ -z "$EC2_IP" ] || [ "$EC2_IP" == "None" ] || [ "$EC2_IP" == "null" ]; then
-            echo "❌ EC2 instance not found. Run Terraform locally first to create infrastructure."
+            echo "::error::EC2 instance not found. Ensure cluster-infra has been applied."
             exit 1
           fi
-          
+
           echo "EC2_PUBLIC_IP=$EC2_IP" >> $GITHUB_ENV
           echo "EC2_PUBLIC_IP=$EC2_IP" >> $GITHUB_OUTPUT
-          echo "✅ EC2 Public IP: $EC2_IP"
-          
+
           if [ -n "$API_GATEWAY_ID" ] && [ "$API_GATEWAY_ID" != "null" ] && [ "$API_GATEWAY_ID" != "None" ]; then
             echo "API_GATEWAY_ID=$API_GATEWAY_ID" >> $GITHUB_ENV
             echo "API_GATEWAY_ID=$API_GATEWAY_ID" >> $GITHUB_OUTPUT
-            echo "✅ API Gateway ID: $API_GATEWAY_ID"
-          else
-            echo "⚠️  API Gateway ID not found. Update API Gateway backend step will be skipped."
           fi
-          
-          if [ -n "$SECRETS_MANAGER_ARN" ] && [ "$SECRETS_MANAGER_ARN" != "null" ] && [ "$SECRETS_MANAGER_ARN" != "None" ]; then
-            echo "SECRETS_MANAGER_ARN=$SECRETS_MANAGER_ARN" >> $GITHUB_ENV
-            echo "SECRETS_MANAGER_ARN=$SECRETS_MANAGER_ARN" >> $GITHUB_OUTPUT
-            echo "✅ Secrets Manager ARN retrieved"
-          else
-            echo "⚠️  Secrets Manager ARN not found, JWT_SECRET will use default or GitHub Secrets"
-          fi
-          
-          echo ""
-          echo "✅ Infrastructure values retrieved:"
-          echo "  EC2_PUBLIC_IP: $EC2_IP"
-          echo "  API_GATEWAY_ID: ${API_GATEWAY_ID:-not found}"
-          echo "  SECRETS_MANAGER_ARN: ${SECRETS_MANAGER_ARN:-not found}"
 
       - name: Get ECR repository URI
         id: ecr
         run: |
           REPO_URI=$(aws ecr describe-repositories --repository-names authcore-${{ env.ENVIRONMENT }} --query 'repositories[0].repositoryUri' --output text --region ${{ env.AWS_REGION }} || echo "")
           if [ -z "$REPO_URI" ]; then
-            echo "❌ ECR repository not found. Please create it with Terraform first."
+            echo "::error::ECR repository not found. Ensure cluster-infra has been applied."
             exit 1
           fi
           echo "ECR_REPOSITORY_URI=$REPO_URI" >> $GITHUB_ENV
@@ -339,47 +182,36 @@ jobs:
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          
-          # SSH 키 가져오기 (GitHub Secrets 사용, Secrets Manager는 JWT_SECRET 전용)
-          echo "📥 Getting SSH key from GitHub Secrets..."
           SSH_KEY="${{ secrets.SSH_PRIVATE_KEY }}"
-          
           if [ -z "$SSH_KEY" ]; then
-            echo "❌ SSH key not found in GitHub Secrets."
-            echo "💡 Please set SSH_PRIVATE_KEY in GitHub Secrets (Settings → Secrets and variables → Actions)"
+            echo "::error::SSH_PRIVATE_KEY not found in GitHub Secrets."
             exit 1
           fi
-          
           echo "$SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ env.EC2_PUBLIC_IP }} >> ~/.ssh/known_hosts || true
-          echo "✅ SSH key configured"
 
       - name: Setup kubeconfig
-        run: |
-          python scripts/setup_k8s.py
+        run: python scripts/setup_k8s.py
         env:
           EC2_IP: ${{ env.EC2_PUBLIC_IP }}
           SSH_KEY: ~/.ssh/id_rsa
           KUBECONFIG: ~/.kube/config
 
       - name: Deploy to Kubernetes (k3s)
-        run: |
-          python scripts/deploy_to_k8s.py
+        run: python scripts/deploy_to_k8s.py
         env:
           KUBECONFIG: ~/.kube/config
           NAMESPACE: authcore
           ENVIRONMENT: ${{ env.ENVIRONMENT }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          # JWT_SECRET은 deploy_to_k8s.py가 자동으로 Secrets Manager에서 가져옴
           USERS_TABLE: AuthCore_Users
           REFRESH_TOKENS_TABLE: AuthCore_RefreshTokens
           IMAGE_URI: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}
 
       - name: Update API Gateway backend
         if: steps.infra_values.outputs.API_GATEWAY_ID != ''
-        run: |
-          python scripts/update_apigateway_backend.py
+        run: python scripts/update_apigateway_backend.py
         env:
           EC2_PUBLIC_IP: ${{ env.EC2_PUBLIC_IP }}
           AWS_REGION: ${{ env.AWS_REGION }}
@@ -387,25 +219,14 @@ jobs:
 
       - name: Verify deployment
         run: |
-          # KUBECONFIG를 절대 경로로 설정 (~는 step env에서 확장되지 않아 kubectl가 localhost:8080으로 접속함)
           export KUBECONFIG="${HOME}/.kube/config"
-          echo "🔍 Verifying deployment..."
           kubectl get pods -n authcore
           kubectl get svc -n authcore
-          
-          # Pod가 Ready 상태인지 확인 (최대 5분 대기)
-          echo "⏳ Waiting for pods to be ready..."
           if kubectl wait --for=condition=ready pod -l app=authcore-api -n authcore --timeout=300s; then
-            echo "✅ Pods are ready"
+            echo "Pods are ready"
           else
-            echo "⚠️  Pods are not ready yet, but continuing..."
+            echo "Pods are not ready yet"
             kubectl get pods -n authcore
           fi
-          
-          # Pod 상태 확인
-          echo "📊 Pod status:"
           kubectl get pods -n authcore -o wide
-          
-          # Pod 로그 확인 (최근 20줄)
-          echo "📋 Recent pod logs:"
-          kubectl logs -n authcore -l app=authcore-api --tail=20 || echo "⚠️  Could not retrieve logs"
+          kubectl logs -n authcore -l app=authcore-api --tail=20 || true

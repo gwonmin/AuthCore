@@ -26,12 +26,6 @@ AWS_REGION=ap-northeast-2
 NODE_ENV=production
 ```
 
-### DynamoDB 테이블 생성
-
-```bash
-npm run create-tables
-```
-
 ---
 
 ## 🔑 인증 API
@@ -357,41 +351,5 @@ curl -X POST http://localhost:4000/auth/login \
 
 ## 🚀 배포
 
-### Serverless Framework 사용
-
-```bash
-# 배포
-npm run deploy
-
-# 로그 확인
-npm run logs
-
-# 제거
-npm run remove
-```
-
-### Docker 사용
-
-```bash
-# 이미지 빌드
-docker build -t authcore .
-
-# 컨테이너 실행
-docker run -p 4000:4000 authcore
-```
-
----
-
-## 📝 라이선스
-
-MIT License
-
----
-
-## 🤝 기여하기
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+배포는 GitHub Actions CI/CD 파이프라인이 자동 수행하거나, 수동으로 진행할 수 있습니다.
+자세한 내용은 [배포 가이드](./DEPLOYMENT_GUIDE.md)를 참고하세요.

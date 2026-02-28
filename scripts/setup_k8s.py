@@ -90,8 +90,7 @@ def main():
             print_error("EC2_IP is required (CI: set EC2_PUBLIC_IP in Get infrastructure values step)")
             sys.exit(1)
         print_info("EC2_IP not set")
-        print_info("Get EC2 IP from Terraform output:")
-        print("   terraform output -raw ec2_public_ip")
+        print_info("Get EC2 IP from AWS Console or cluster-infra terraform output")
         print()
         ec2_ip = input("Enter EC2 Public IP: ").strip()
     
