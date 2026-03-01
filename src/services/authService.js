@@ -543,28 +543,28 @@ async function revokeRefreshToken(tokenId, dynamoDBClient = dynamoDB) {
  */
 async function revokeAllUserTokens(userId, dynamoDBClient = dynamoDB) {
   try {
-    // 사용자의 모든 refresh token 조회
     const result = await dynamoDBClient.send(
       new QueryCommand({
         TableName: TABLES.REFRESH_TOKENS,
         IndexName: "user-id-index",
         KeyConditionExpression: "user_id = :userId",
+        FilterExpression: "is_revoked = :notRevoked",
         ExpressionAttributeValues: {
           ":userId": userId,
+          ":notRevoked": false,
         },
       })
     );
 
-    // 모든 토큰 무효화
     if (result.Items && result.Items.length > 0) {
       const revokePromises = result.Items.map(item =>
         revokeRefreshToken(item.token_id, dynamoDBClient)
       );
-
       await Promise.all(revokePromises);
+      logger.info(`Revoked ${result.Items.length} active token(s) for user: ${userId}`);
+    } else {
+      logger.info(`No active tokens to revoke for user: ${userId}`);
     }
-    
-    logger.info(`All tokens revoked for user: ${userId}`);
   } catch (error) {
     logger.error(`Failed to revoke all user tokens: ${error.message}`);
     throw error;
