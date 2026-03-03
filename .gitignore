@@ -95,3 +95,9 @@ pip-delete-this-directory.txt
 
 # AWS
 .aws/
+
+# Terraform (local state & providers)
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.zip
