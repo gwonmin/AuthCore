@@ -1,4 +1,5 @@
-const { verifyAccessToken, getUserById, createDynamoDBClient } = require("../services/authService");
+const { verifyAccessToken, getUserById } = require("../services/authService");
+const { createDynamoDBClient } = require("../services/dynamoClient");
 
 /**
  * JWT 토큰 인증 미들웨어

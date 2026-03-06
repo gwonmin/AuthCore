@@ -1,21 +1,19 @@
 const {
-  DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
   UpdateCommand,
   QueryCommand,
 } = require("@aws-sdk/lib-dynamodb");
-const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const bcrypt = require("bcryptjs");
 const { v4: uuidv4 } = require("uuid");
 const jwt = require("jsonwebtoken");
 const { TABLES, JWT_CONFIG, ERROR_MESSAGES } = require("../config/constants");
+const { createDynamoDBClient } = require("./dynamoClient");
 const { validateUsername, validatePassword, sanitizeUser } = require("../utils/validation");
 
 // 환경 변수 설정
-const { 
-  AWS_REGION = "ap-northeast-2",
-  JWT_SECRET = "your-super-secret-jwt-key-change-this-in-production"
+const {
+  JWT_SECRET = "your-super-secret-jwt-key-change-this-in-production",
 } = process.env;
 
 // 로깅 설정
@@ -23,22 +21,6 @@ const logger = {
   info: (message) => console.log(`[AUTH_SERVICE] ${message}`),
   error: (message) => console.error(`[AUTH_SERVICE] ${message}`),
 };
-
-/**
- * DynamoDB 클라이언트 생성
- */
-function createDynamoDBClient(options = {}) {
-  try {
-    const client = new DynamoDBClient({
-      region: AWS_REGION,
-      ...options,
-    });
-    return DynamoDBDocumentClient.from(client);
-  } catch (error) {
-    logger.error(`Failed to create DynamoDB client: ${error.message}`);
-    throw new Error("Failed to initialize DynamoDB client");
-  }
-}
 
 // 기본 DynamoDB 클라이언트 인스턴스 (테스트에서는 모킹됨)
 let dynamoDB = null;
